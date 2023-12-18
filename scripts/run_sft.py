@@ -20,11 +20,13 @@ Supervised fine-tuning script for decoder language models.
 import logging
 import random
 import sys
+import warnings
 
 import datasets
 import torch
 import transformers
 from transformers import set_seed
+from datasets import load_dataset
 
 from accelerate import Accelerator
 from alignment import (
@@ -43,11 +45,37 @@ from trl import SFTTrainer
 
 
 logger = logging.getLogger(__name__)
+warnings.filterwarnings("ignore", category=UserWarning, module="torch.utils.data.dataloader")
+warnings.filterwarnings("ignore", category=UserWarning, module="trl.trainer.ppo_config")
+
+
+###########################################################################################
+# Added this functionality for converting the dataset to the required format as
+# specified by scripts/README.md. 
+def format_input(inp, gpt_sw3=False):
+    inp = inp.lstrip("\n")
+    for role in ["system", "user", "assistant"]:
+        if inp.startswith(f"<|im_start|>{role}"):
+            inp = inp.replace(f"<|im_start|>{role}", "")
+            if gpt_sw3:
+                if role in ["assistant", "user"]:
+                    role = "bot" if role == "assistant" else role
+                    role = role.capitalize() + ":"
+            return {"role": role, "content": inp.rstrip("\n").lstrip("\n")}
+
+
+def format_inputs(row, gpt_sw3=False):
+    """Convert a dataset row to the required format as described in the README.md"""
+    inputs = row["input"].split("<|im_end|>")
+    inputs[-1] += row["output"]
+    return {"messages": [format_input(inp, gpt_sw3=gpt_sw3) for inp in inputs]}
+###########################################################################################
 
 
 def main():
     parser = H4ArgumentParser((ModelArguments, DataArguments, SFTConfig))
     model_args, data_args, training_args = parser.parse()
+    gpt_sw3 = "gpt-sw3" in model_args.model_name_or_path
 
     # Set seed for reproducibility
     set_seed(training_args.seed)
@@ -81,7 +109,25 @@ def main():
     ###############
     # Load datasets
     ###############
-    raw_datasets = get_datasets(data_args, splits=data_args.dataset_splits)
+    if not isinstance(data_args.dataset_mixer, str):
+        raw_datasets = get_datasets(data_args, splits=data_args.dataset_splits)
+    
+    ############################## for custom dataset #####################################
+    else:
+        base_path = data_args.dataset_mixer
+        raw_datasets = load_dataset("json", data_files={"train": base_path + "train.json", "test": base_path + "eval.json"})
+        raw_datasets = raw_datasets.map(format_inputs, fn_kwargs={"gpt_sw3": gpt_sw3})
+        raw_datasets = raw_datasets.remove_columns(column_names=["input", "output"])
+
+        if data_args.max_train_samples is not None:
+            raw_datasets["train"] = raw_datasets["train"].shuffle(seed=training_args.seed)
+            raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
+
+        if data_args.max_eval_samples is not None:
+            raw_datasets["test"] = raw_datasets["test"].shuffle(seed=training_args.seed)
+            raw_datasets["test"] = raw_datasets["test"].select(range(data_args.max_eval_samples))
+    #######################################################################################
+    
     logger.info(
         f"Training on the following datasets and their proportions: {[split + ' : ' + str(dset.num_rows) for split, dset in raw_datasets.items()]}"
     )
@@ -90,6 +136,9 @@ def main():
     # Load tokenizer
     ################
     tokenizer = get_tokenizer(model_args, data_args)
+    tokenizer.padding_side = data_args.truncation_side
+    if gpt_sw3:
+        tokenizer.chat_template = """<|endoftext|><s>\n{% for message in messages %}{{message['role'] + '\n' + message['content'] + '\n<s>\n'}}{% endfor %}"""
 
     #####################
     # Apply chat template
@@ -135,6 +184,7 @@ def main():
         tokenizer=tokenizer,
         packing=True,
         peft_config=get_peft_config(model_args),
+        neftune_noise_alpha=training_args.neftune_noise_alpha,
     )
 
     ###############
@@ -169,12 +219,7 @@ def main():
 
     # Save everything else on main process
     if accelerator.is_main_process:
-        kwargs = {
-            "finetuned_from": model_args.model_name_or_path,
-            "dataset": list(data_args.dataset_mixer.keys()),
-            "dataset_tags": list(data_args.dataset_mixer.keys()),
-            "tags": ["alignment-handbook"],
-        }
+        kwargs = {"finetuned_from": model_args.model_name_or_path}
         trainer.create_model_card(**kwargs)
         # Restore k,v cache for fast inference
         trainer.model.config.use_cache = True

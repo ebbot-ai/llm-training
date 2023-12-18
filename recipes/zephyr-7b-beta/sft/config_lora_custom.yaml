@@ -1,0 +1,68 @@
+# Model arguments
+model_name_or_path: HuggingFaceH4/zephyr-7b-beta
+torch_dtype: auto
+use_flash_attention_2: true
+load_in_4bit: true
+load_in_8bit: false
+trust_remote_code: true
+
+# LoRA arguments
+use_peft: true
+lora_r: 128
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules:
+- q_proj
+- k_proj
+- v_proj
+- o_proj
+- gate_proj
+- down_proj
+- up_proj
+
+# Data training arguments
+dataset_mixer: data/data_pp7_chatml_3840cap_
+max_train_samples: 100
+max_eval_samples: 10
+preprocessing_num_workers: 4
+truncation_side: right
+
+# SFT trainer config
+bf16: true
+do_train: true
+do_eval: true
+evaluation_strategy: steps
+gradient_accumulation_steps: 8
+eval_accumulation_steps: 8
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+learning_rate: 0.0001
+weight_decay: 0.01
+max_grad_norm: 1.0
+log_level: info
+logging_steps: 1
+logging_strategy: steps
+lr_scheduler_type: cosine
+max_seq_length: 512
+max_steps: -1
+num_train_epochs: 1
+warmup_ratio: 0.1
+eval_steps: 0.05
+dataloader_num_workers: 4
+group_by_length: true
+output_dir: ./output/
+overwrite_output_dir: true
+per_device_eval_batch_size: 2
+per_device_train_batch_size: 4
+remove_unused_columns: False
+report_to: wandb
+run_name: ebbot_gpt_alignment_handbook_test
+save_strategy: steps
+save_steps: 0.2
+save_total_limit: 1
+load_best_model_at_end: true
+seed: 42
+data_seed: 0
+neftune_noise_alpha: null
+ddp_find_unused_parameters: false

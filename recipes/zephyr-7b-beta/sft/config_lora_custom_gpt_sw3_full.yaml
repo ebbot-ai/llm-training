@@ -1,0 +1,64 @@
+# Model arguments
+model_name_or_path: AI-Sweden-Models/gpt-sw3-20b-instruct
+torch_dtype: auto
+use_flash_attention_2: false
+load_in_4bit: true
+load_in_8bit: false
+trust_remote_code: true
+
+# LoRA arguments
+use_peft: true
+lora_r: 128
+lora_alpha: 256
+lora_dropout: 0.05
+lora_target_modules:
+- c_attn
+- c_proj
+- c_fc
+
+# Data training arguments
+dataset_mixer: /home/azureuser/llm-training/data/data_pp7_chatml_3840cap_
+#max_train_samples: 100
+#max_eval_samples: 10
+preprocessing_num_workers: 8
+truncation_side: right
+
+# SFT trainer config
+bf16: true
+do_train: true
+do_eval: true
+evaluation_strategy: steps
+gradient_accumulation_steps: 32
+eval_accumulation_steps: 8
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+learning_rate: 0.0001
+weight_decay: 0.01
+max_grad_norm: 0.3
+log_level: info
+logging_steps: 1
+logging_strategy: steps
+lr_scheduler_type: cosine
+max_seq_length: 2048
+max_steps: -1
+num_train_epochs: 1
+warmup_ratio: 0.1
+eval_steps: 0.33
+dataloader_num_workers: 4
+group_by_length: false
+output_dir: /home/azureuser/llm-training/gpt-sw3-20b-instruct-v1
+overwrite_output_dir: true
+per_device_eval_batch_size: 1
+per_device_train_batch_size: 2
+remove_unused_columns: False
+report_to: wandb
+run_name: null
+save_strategy: steps
+save_steps: 0.33
+save_total_limit: 1
+load_best_model_at_end: true
+seed: 42
+data_seed: 0
+neftune_noise_alpha: null
+ddp_find_unused_parameters: false
